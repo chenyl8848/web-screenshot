@@ -1,0 +1,18 @@
+{
+  "manifest_version": 3,
+  "name": "snapDOM 截图工具",
+  "version": "1.0",
+  "permissions": ["activeTab", "downloads"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["snapdom.min.js", "content-script.js"]
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  }
+}
