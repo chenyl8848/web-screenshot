@@ -10,18 +10,8 @@
 //     });
 // });
 
-// 移除不必要的回调，避免等待未返回的响应
-document.getElementById('captureFullPage').addEventListener('click', () => {
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        chrome.tabs.sendMessage(tabs[0].id, {
-            action: 'capture',
-            target: 'body',
-            format: document.getElementById('format').value
-        });
-    });
-});
 
-// popup.js 中给「捕获选中元素」按钮添加点击事件
+// 捕获选中元素
 document.getElementById('captureSelected').addEventListener('click', () => {
   chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
     chrome.tabs.sendMessage(tabs[0].id, {
@@ -32,6 +22,17 @@ document.getElementById('captureSelected').addEventListener('click', () => {
         // 关闭弹窗（可选，提升体验）
         window.close();
       }
+    });
+  });
+});
+
+// 捕获全页面
+document.getElementById('captureFullPage').addEventListener('click', () => {
+  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+    chrome.tabs.sendMessage(tabs[0].id, {
+      action: 'captureFullPage',
+      target: 'body',
+      format: document.getElementById('format').value
     });
   });
 });
