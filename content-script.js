@@ -11,7 +11,8 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             console.log(el, 'el');
             if (!el) {
                 sendResponse({ success: false, error: '未找到目标元素' });
-                alert('未找到目标元素');
+                // alert('未找到目标元素');
+                showPageNotification('未找到目标元素！', 'error');
                 return;
             }
 
@@ -68,7 +69,8 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
         } catch (error) {
             sendResponse({ success: false, error: error.message });
             console.error('截图失败:', error);
-            alert('截图失败: ' + error.message);
+            // alert('截图失败: ' + error.message);
+            showPageNotification('截图失败！', 'error');
         }
     } else if (message.action === 'enterSelectMode') {
         enterSelectMode(message, sender, sendResponse);
@@ -192,9 +194,13 @@ const enterSelectMode = (message, sender, sendResponse) => {
     const styleElement = document.getElementById('snapdom-select-style');
     if (!styleElement) {
         console.error('样式注入失败');
-        alert('选择模式启动失败，请重试');
+        // alert('选择模式启动失败，请重试');
+        showPageNotification('选择模式启动失败，请重试！', 'error');
         return;
     }
+
+    // alert('已进入元素选择模式，请点击要截图的元素（按ESC取消）');
+    showPageNotification('已进入元素选择模式，请移动梳篦选择目标元素（按ESC取消）', 'info');
 
     // 创建遮罩
     const mask = document.createElement('div');
@@ -207,7 +213,6 @@ const enterSelectMode = (message, sender, sendResponse) => {
     mask.addEventListener('click', (event) => handleElementSelect(event, message, sender, sendResponse), true);
     document.addEventListener('keydown', handleEscKey, true);
 
-    alert('已进入元素选择模式，请点击要截图的元素（按ESC取消）');
 };
 
 // 鼠标移动时高亮元素
@@ -255,7 +260,8 @@ const handleElementSelect = (e, message, sender, sendResponse) => {
         // 对选中的元素截图
         captureElement(selectedElement, message, sender, sendResponse);
     } else {
-        alert('未选中任何元素，请重试');
+        // alert('未选中任何元素，请重试');
+        showPageNotification('未选中任何元素，请重试！', 'error');
     }
 };
 
@@ -264,7 +270,8 @@ const handleEscKey = (e) => {
     console.log('handleEscKey', e);
     if (e.key === 'Escape' && isSelecting) {
         exitSelectMode();
-        alert('已取消选择');
+        // alert('已取消选择');
+        showPageNotification('已取消选择！', 'success');
     }
 };
 
@@ -342,6 +349,132 @@ const captureElement = async (el, message, sender, sendResponse) => {
 
     } catch (error) {
         console.error('截图失败:', error);
-        alert('截图失败: ' + error.message);
+        // alert('截图失败: ' + error.message);
+        showPageNotification('截图失败！', 'error');
     }
+};
+
+// 注入带图标的浮动通知样式（替换原 injectNotificationStyle 函数）
+const injectNotificationStyle = () => {
+    if (document.getElementById('snapdom-notification-style')) return;
+
+    const style = document.createElement('style');
+    style.id = 'snapdom-notification-style';
+    style.textContent = `
+    /* 浮动通知容器：包含图标和文本 */
+    .snapdom-notification {
+      position: fixed;
+      top: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 12px 20px;
+      padding-left: 48px; /* 给图标预留空间 */
+      border-radius: 8px;
+      font-size: 14px;
+      color: #fff;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      z-index: 9999999; /* 最顶层，不被遮挡 */
+      opacity: 0;
+      transition: opacity 0.3s ease, transform 0.3s ease;
+      transform: translateX(-50%) translateY(-20px);
+      pointer-events: none; /* 不拦截鼠标操作 */
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); /* 阴影增强层次感 */
+    }
+
+    /* 通知图标容器：固定位置 */
+    .snapdom-notification .notify-icon {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 20px;
+      height: 20px;
+    }
+
+    /* 成功状态：绿色背景 + 对勾图标 */
+    .snapdom-notification.success {
+      background-color: #28a745;
+    }
+    .snapdom-notification.success .notify-icon path {
+      fill: #fff;
+    }
+
+    /* 错误状态：红色背景 + 叉号图标 */
+    .snapdom-notification.error {
+      background-color: #dc3545;
+    }
+    .snapdom-notification.error .notify-icon path {
+      fill: #fff;
+    }
+
+    /* 信息状态：蓝色背景 + 信息图标 */
+    .snapdom-notification.info {
+      background-color: #007bff;
+    }
+    .snapdom-notification.info .notify-icon path {
+      fill: #fff;
+    }
+
+    /* 显示通知的动画 */
+    .snapdom-notification.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+  `;
+    document.head.appendChild(style);
+};
+
+// 显示带图标的页面浮动通知
+// 参数：message（文本）、type（success/error/info）、duration（显示时长ms）
+const showPageNotification = (message, type = 'info', duration = 3000) => {
+    // 1. 注入样式
+    injectNotificationStyle();
+
+    // 2. 移除旧通知（避免叠加）
+    const oldNotify = document.querySelector('.snapdom-notification');
+    if (oldNotify) oldNotify.remove();
+
+    // 3. 根据类型选择 SVG 图标
+    let iconSvg = '';
+    switch (type) {
+        case 'success':
+            // 对勾图标（SVG 内联）
+            iconSvg = `
+        <svg class="notify-icon" viewBox="0 0 24 24">
+          <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+        </svg>
+      `;
+            break;
+        case 'error':
+            // 叉号图标（SVG 内联）
+            iconSvg = `
+        <svg class="notify-icon" viewBox="0 0 24 24">
+          <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+        </svg>
+      `;
+            break;
+        case 'info':
+            // 信息图标（SVG 内联）
+            iconSvg = `
+        <svg class="notify-icon" viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 17h-2v-2h2v2zm2.07-7.75l-.9.92C13.45 12.9 13 13.5 13 15h-2v-.5c0-1.1.45-2.1 1.17-2.83l1.24-1.26c.37-.36.59-.86.59-1.41 0-1.1-.9-2-2-2s-2 .9-2 2H8c0-2.21 1.79-4 4-4s4 1.79 4 4c0 .88-.36 1.68-.93 2.25z"/>
+        </svg>
+      `;
+            break;
+    }
+
+    // 4. 创建通知元素（包含图标和文本）
+    const notify = document.createElement('div');
+    notify.className = `snapdom-notification ${type}`;
+    notify.innerHTML = `${iconSvg}<span class="notify-text">${message}</span>`; // 图标+文本
+    document.body.appendChild(notify);
+
+    // 5. 显示通知（延迟10ms触发过渡动画）
+    setTimeout(() => notify.classList.add('show'), 10);
+
+    // 6. 自动隐藏（动画结束后移除元素）
+    setTimeout(() => {
+        notify.classList.remove('show');
+        setTimeout(() => notify.remove(), 300); // 等待淡出动画完成
+    }, duration);
 };
