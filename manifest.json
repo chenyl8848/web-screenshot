@@ -1,15 +1,24 @@
 {
   "manifest_version": 3,
-  "name": "snapDOM 截图工具",
+  "name": "WebScreenshot",
+  "description": "一款 Web 截图工具，支持选中元素截图和全页面截图，并支持输出多种图片格式。",
   "version": "1.0",
-  "permissions": ["activeTab", "downloads"],
+  "permissions": [
+    "activeTab",
+    "downloads"
+  ],
   "action": {
     "default_popup": "popup.html"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "js": ["snapdom.min.js", "content-script.js"]
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "snapdom.min.js",
+        "content-script.js"
+      ]
     }
   ],
   "background": {
