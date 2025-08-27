@@ -3,12 +3,14 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
     console.log(message, sender, sendResponse, 'capture');
     if (message.action === 'captureFullPage') {
         try {
+            // 隐藏滚动条
             const restoreScrollbars = handleScrollbars();
 
             // const el = message.target === 'body' ? document.body : document.querySelector('.' + message.target);
             const el = document.body;
+
             // const el = document.getElementById('container');
-            console.log(el, 'el');
+            // console.log(el, 'el');
             if (!el) {
                 sendResponse({ success: false, error: '未找到目标元素' });
                 // alert('未找到目标元素');
@@ -42,7 +44,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             }
 
             // 关键：在内容脚本中将 Blob 转换为 base64
-            console.log(blob, 'blog');
+            // console.log(blob, 'blog');
             const reader = new FileReader();
             reader.onload = function (event) {
                 // 发送 base64 数据到后台脚本
@@ -51,6 +53,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                     data: event.target.result,
                     format: message.format
                 }, (downloadResponse) => {
+                    console.log(downloadResponse, 'downloadResponse');
                     if (chrome.runtime.lastError) {
                         console.log(chrome.runtime.lastError)
                         sendResponse({ success: false, error: '下载失败' });
@@ -62,6 +65,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
             // 读取 Blob 并转换为 data URL
             reader.readAsDataURL(blob);
 
+            // 恢复滚动条
             restoreScrollbars();
 
             // 异步响应标识
@@ -325,7 +329,7 @@ const captureElement = async (el, message, sender, sendResponse) => {
         }
 
         // 关键：在内容脚本中将 Blob 转换为 base64
-        console.log(blob, 'blog');
+        // console.log(blob, 'blog');
         const reader = new FileReader();
         reader.onload = function (event) {
             // 发送 base64 数据到后台脚本

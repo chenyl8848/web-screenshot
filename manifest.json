@@ -3,6 +3,11 @@
   "name": "WebScreenshot",
   "description": "一款 Web 截图工具，支持选中元素截图和全页面截图，并支持输出多种图片格式。",
   "version": "1.0",
+  "icons": {
+    "16": "icons/16x16.png",
+    "48": "icons/48x48.png",
+    "128": "icons/128x128.png"
+  },
   "permissions": [
     "activeTab",
     "downloads"

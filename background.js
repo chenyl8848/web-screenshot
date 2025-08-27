@@ -1,7 +1,8 @@
 // background.js
 chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
+    console.log(message, sender, sendResponse, 'download1111111111')
     if (message.action === 'download') {
-        console.log(message, sender, sendResponse, 'download')
+        console.log(message, sender, sendResponse, 'download22222222222')
         try {
             // 直接使用从内容脚本接收的 base64 数据
             chrome.downloads.download({
@@ -9,6 +10,7 @@ chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
                 url: `${message.data}`,
                 filename: `screenshot-${new Date().getTime()}.${message.format}`
             }, (downloadId) => {
+                console.log(downloadId, 'downloadId', chrome.runtime.lastError);
                 if (chrome.runtime.lastError) {
                     sendResponse({ success: false, error: chrome.runtime.lastError.message });
                 } else {
