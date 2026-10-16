@@ -1,91 +1,88 @@
 // content-script.js
-chrome.runtime.onMessage.addListener(async (message, sender, sendResponse) => {
-    console.log(message, sender, sendResponse, 'capture');
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.action === 'captureFullPage') {
-        try {
-            // 隐藏滚动条
-            const restoreScrollbars = handleScrollbars();
+        // 全页截图：异步完成后再 sendResponse
+        captureFullPage(message.format, sendResponse);
+        return true; // 保持消息通道
+    }
 
-            // const el = message.target === 'body' ? document.body : document.querySelector('.' + message.target);
-            const el = document.body;
-
-            // const el = document.getElementById('container');
-            // console.log(el, 'el');
-            if (!el) {
-                sendResponse({ success: false, error: '未找到目标元素' });
-                // alert('未找到目标元素');
-                showPageNotification('未找到目标元素！', 'error');
-                return;
-            }
-
-            // 使用 snapdom 捕获元素
-            const result = await snapdom(el, {
-                scale: 2,
-                backgroundColor: '#fff',
-                // images: { embed: true, useCORS: true },
-                // useProxy: 'https://corsproxy.io/?url='
-            });
-
-            // 处理不同格式
-            let blob;
-            switch (message.format) {
-                case 'png':
-                    blob = await result.toBlob({ type: 'png' });
-                    break;
-                case 'jpg':
-                    blob = await result.toBlob({ type: 'jpg', quality: 0.9 });
-                    break;
-                case 'svg':
-                    blob = await result.toBlob({ type: 'svg' });
-                    break;
-                default:
-                    sendResponse({ success: false, error: '不支持的格式' });
-                    return;
-            }
-
-            // 关键：在内容脚本中将 Blob 转换为 base64
-            // console.log(blob, 'blog');
-            const reader = new FileReader();
-            reader.onload = function (event) {
-                // 发送 base64 数据到后台脚本
-                chrome.runtime.sendMessage({
-                    action: 'download',
-                    data: event.target.result,
-                    format: message.format
-                }, (downloadResponse) => {
-                    console.log(downloadResponse, 'downloadResponse');
-                    if (chrome.runtime.lastError) {
-                        console.log(chrome.runtime.lastError)
-                        sendResponse({ success: false, error: '下载失败' });
-                    } else {
-                        sendResponse({ success: true });
-                    }
-                });
-            };
-            // 读取 Blob 并转换为 data URL
-            reader.readAsDataURL(blob);
-
-            // 恢复滚动条
-            restoreScrollbars();
-
-            // 异步响应标识
-            return true;
-        } catch (error) {
-            sendResponse({ success: false, error: error.message });
-            console.error('截图失败:', error);
-            // alert('截图失败: ' + error.message);
-            showPageNotification('截图失败！', 'error');
-        }
-    } else if (message.action === 'enterSelectMode') {
-        enterSelectMode(message, sender, sendResponse);
+    if (message.action === 'enterSelectMode') {
+        // 进入选择模式：立即响应关闭弹窗；后续选中截图不再占用该 sendResponse
+        enterSelectMode(message.format);
         sendResponse({ success: true });
-        return true;
     }
 });
 
-// content-script.js 开头添加
+// 截图并下载（全页 / 选中元素共用）
+const captureAndDownload = async (el, format) => {
+    const result = await snapdom(el, {
+        scale: 2,
+        backgroundColor: '#fff'
+    });
+
+    let blob;
+    switch (format) {
+        case 'png':
+            blob = await result.toBlob({ type: 'png' });
+            break;
+        case 'jpg':
+            blob = await result.toBlob({ type: 'jpg', quality: 0.9 });
+            break;
+        case 'svg':
+            blob = await result.toBlob({ type: 'svg' });
+            break;
+        default:
+            throw new Error('不支持的格式');
+    }
+
+    // Blob → base64 data URL
+    const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = () => reject(reader.error);
+        reader.readAsDataURL(blob);
+    });
+
+    // 交给后台下载
+    return new Promise((resolve) => {
+        chrome.runtime.sendMessage({ action: 'download', data: dataUrl, format }, (res) => {
+            resolve(chrome.runtime.lastError ? { success: false, error: chrome.runtime.lastError.message } : res);
+        });
+    });
+};
+
+// 捕获全页面
+const captureFullPage = async (format, sendResponse) => {
+    let restoreScrollbars = null;
+    let restoreSize = null;
+    try {
+        restoreScrollbars = handleScrollbars();   // 隐藏滚动条
+        restoreSize = expandPageToFullSize();     // 撑开到完整内容尺寸
+
+        if (!document.body) {
+            throw new Error('未找到目标元素');
+        }
+
+        const res = await captureAndDownload(document.body, format);
+        if (res?.success) {
+            showPageNotification('截图成功，已开始下载！', 'success');
+            sendResponse({ success: true });
+        } else {
+            showPageNotification('下载失败！', 'error');
+            sendResponse({ success: false, error: res?.error || '下载失败' });
+        }
+    } catch (error) {
+        console.error('截图失败:', error);
+        showPageNotification('截图失败！', 'error');
+        sendResponse({ success: false, error: error.message });
+    } finally {
+        // 无论成功失败都恢复滚动条与页面尺寸
+        restoreSize?.();
+        restoreScrollbars?.();
+    }
+};
+
 // 注入选择模式的样式
-// 修改 content-script.js 中的 injectSelectStyle 函数
 const injectSelectStyle = () => {
     // 先移除旧样式（避免重复注入）
     const oldStyle = document.getElementById('snapdom-select-style');
@@ -119,7 +116,7 @@ const injectSelectStyle = () => {
     document.head.appendChild(style);
 };
 
-// 在 content-script.js 中添加隐藏/恢复滚动条的函数
+// 隐藏/恢复滚动条
 const handleScrollbars = () => {
     // 保存原始样式（用于恢复）
     const originalHtmlStyle = {
@@ -183,28 +180,51 @@ const handleScrollbars = () => {
     };
 };
 
-// content-script.js 中添加选择模式处理函数
-let selectedElement = null;
+// 将 html/body 撑开到完整内容尺寸，保证全页截图能截到全部（否则只截可视区）
+const expandPageToFullSize = () => {
+    const docEl = document.documentElement;
+    const body = document.body;
+
+    const original = {
+        htmlHeight: docEl.style.height,
+        htmlWidth: docEl.style.width,
+        bodyHeight: body.style.height,
+        bodyWidth: body.style.width
+    };
+
+    const fullHeight = Math.max(body.scrollHeight, docEl.scrollHeight);
+    const fullWidth = Math.max(body.scrollWidth, docEl.scrollWidth);
+
+    docEl.style.height = fullHeight + 'px';
+    docEl.style.width = fullWidth + 'px';
+    body.style.height = fullHeight + 'px';
+    body.style.width = fullWidth + 'px';
+
+    return () => {
+        docEl.style.height = original.htmlHeight;
+        docEl.style.width = original.htmlWidth;
+        body.style.height = original.bodyHeight;
+        body.style.width = original.bodyWidth;
+    };
+};
+
+// 是否处于选择模式
 let isSelecting = false;
 
 // 进入选择模式
-const enterSelectMode = (message, sender, sendResponse) => {
-    console.log(message, sender, sendResponse, 'enterSelectMode');
+const enterSelectMode = (format) => {
     isSelecting = true;
-    selectedElement = null;
 
     // 强制注入样式并验证
     injectSelectStyle();
     const styleElement = document.getElementById('snapdom-select-style');
     if (!styleElement) {
         console.error('样式注入失败');
-        // alert('选择模式启动失败，请重试');
         showPageNotification('选择模式启动失败，请重试！', 'error');
         return;
     }
 
-    // alert('已进入元素选择模式，请点击要截图的元素（按ESC取消）');
-    showPageNotification('已进入元素选择模式，请移动梳篦选择目标元素（按ESC取消）', 'info');
+    showPageNotification('已进入元素选择模式，请移动鼠标选择目标元素（按ESC取消）', 'info');
 
     // 创建遮罩
     const mask = document.createElement('div');
@@ -213,10 +233,8 @@ const enterSelectMode = (message, sender, sendResponse) => {
 
     // 绑定事件（使用捕获阶段确保优先执行）
     document.addEventListener('mousemove', handleMouseMove, true);
-    // mask.addEventListener('click', handleElementSelect, true);
-    mask.addEventListener('click', (event) => handleElementSelect(event, message, sender, sendResponse), true);
+    mask.addEventListener('click', (event) => handleElementSelect(event, format), true);
     document.addEventListener('keydown', handleEscKey, true);
-
 };
 
 // 鼠标移动时高亮元素
@@ -245,8 +263,7 @@ const handleMouseMove = (e) => {
 };
 
 // 点击选择元素
-const handleElementSelect = (e, message, sender, sendResponse) => {
-    console.log('handleElementSelect', e, message, sender, sendResponse);
+const handleElementSelect = (e, format) => {
     if (!isSelecting) return;
 
     // 阻止事件冒泡，避免触发页面原有点击事件
@@ -254,34 +271,29 @@ const handleElementSelect = (e, message, sender, sendResponse) => {
     e.preventDefault();
 
     // 获取当前高亮的元素（而非直接获取鼠标位置元素）
-    selectedElement = document.querySelector('.snapdom-hover');
-    console.log('selectedElement', selectedElement);
+    const selected = document.querySelector('.snapdom-hover');
 
     // 退出选择模式
     exitSelectMode();
 
-    if (selectedElement) {
+    if (selected) {
         // 对选中的元素截图
-        captureElement(selectedElement, message, sender, sendResponse);
+        captureElement(selected, format);
     } else {
-        // alert('未选中任何元素，请重试');
         showPageNotification('未选中任何元素，请重试！', 'error');
     }
 };
 
 // 按 ESC 退出选择模式
 const handleEscKey = (e) => {
-    console.log('handleEscKey', e);
     if (e.key === 'Escape' && isSelecting) {
         exitSelectMode();
-        // alert('已取消选择');
         showPageNotification('已取消选择！', 'success');
     }
 };
 
 // 退出选择模式
 const exitSelectMode = () => {
-    console.log('exitSelectMode');
     isSelecting = false;
 
     // 移除所有高亮样式
@@ -302,63 +314,21 @@ const exitSelectMode = () => {
 };
 
 // 对指定元素进行截图
-const captureElement = async (el, message, sender, sendResponse) => {
-    console.log('captureElement', el, message, sender, sendResponse);
+const captureElement = async (el, format) => {
     try {
-        // 获取当前选择的格式（从 popup 传递，这里简化处理）
-        const format = message.format; // 实际应从消息中获取用户选择的格式
-
-        const result = await snapdom(el, {
-            scale: 2,
-            backgroundColor: '#fff',
-            // images: { embed: true, useCORS: true },
-            // useProxy: 'https://corsproxy.io/?url=' //Example: 'https://corsproxy.io/?url=' or 'https://api.allorigins.win/raw?url='
-        });
-
-        let blob;
-        switch (format) {
-            case 'png':
-                blob = await result.toBlob({ type: 'png' });
-                break;
-            case 'jpg':
-                blob = await result.toBlob({ type: 'jpg', quality: 0.9 });
-                break;
-            case 'svg':
-                blob = await result.toBlob({ type: 'svg' });
-                break;
+        const res = await captureAndDownload(el, format);
+        if (res?.success) {
+            showPageNotification('截图成功，已开始下载！', 'success');
+        } else {
+            showPageNotification('下载失败！', 'error');
         }
-
-        // 关键：在内容脚本中将 Blob 转换为 base64
-        // console.log(blob, 'blog');
-        const reader = new FileReader();
-        reader.onload = function (event) {
-            // 发送 base64 数据到后台脚本
-            chrome.runtime.sendMessage({
-                action: 'download',
-                data: event.target.result,
-                format: message.format
-            }, (downloadResponse) => {
-                if (chrome.runtime.lastError) {
-                    sendResponse({ success: false, error: '下载失败' });
-                } else {
-                    sendResponse({ success: true });
-                }
-            });
-        };
-        // 读取 Blob 并转换为 data URL
-        reader.readAsDataURL(blob);
-
-        // 异步响应标识
-        return true;
-
     } catch (error) {
         console.error('截图失败:', error);
-        // alert('截图失败: ' + error.message);
         showPageNotification('截图失败！', 'error');
     }
 };
 
-// 注入带图标的浮动通知样式（替换原 injectNotificationStyle 函数）
+// 注入带图标的浮动通知样式
 const injectNotificationStyle = () => {
     if (document.getElementById('snapdom-notification-style')) return;
 
